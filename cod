@@ -1,0 +1,9 @@
+import logging
+
+# Configuração básica de logging
+logging.basicConfig(level=logging.INFO)
+
+@app.get("/example")
+def example():
+    logging.info("Endpoint accessed.")
+    return {"message": "Hello World"}
