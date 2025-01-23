@@ -1,0 +1,8 @@
+logging:
+  level: INFO
+  file: app.log
+elk:
+  host: localhost
+  port: 9200
+prometheus:
+  enabled: true
