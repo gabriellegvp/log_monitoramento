@@ -1,9 +1,47 @@
 import logging
+from fastapi import FastAPI, HTTPException
+from prometheus_client import Counter, generate_latest
+from starlette.responses import Response
 
-# Configuração básica de logging
-logging.basicConfig(level=logging.INFO)
+# Configuração de logging
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    handlers=[
+        logging.StreamHandler(),
+        logging.FileHandler("app.log")
+    ]
+)
+
+logger = logging.getLogger("my_app")
+
+# Métricas para Prometheus
+REQUEST_COUNT = Counter("app_requests_total", "Total de requisições para a aplicação", ["method", "endpoint"])
+
+# Inicializando a aplicação
+app = FastAPI()
+
+@app.middleware("http")
+async def prometheus_middleware(request, call_next):
+    method = request.method
+    endpoint = request.url.path
+    REQUEST_COUNT.labels(method=method, endpoint=endpoint).inc()
+    response = await call_next(request)
+    return response
 
 @app.get("/example")
 def example():
-    logging.info("Endpoint accessed.")
+    logger.info("Endpoint /example acessado com sucesso.")
     return {"message": "Hello World"}
+
+@app.get("/metrics")
+def metrics():
+    return Response(content=generate_latest(), media_type="text/plain")
+
+@app.get("/error")
+def error():
+    try:
+        raise ValueError("Erro intencional para testes.")
+    except ValueError as e:
+        logger.error(f"Erro ao processar requisição: {e}")
+        raise HTTPException(status_code=500, detail="Erro interno.")
