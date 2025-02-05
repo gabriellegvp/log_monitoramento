@@ -1,7 +1,9 @@
 import logging
-from fastapi import FastAPI, HTTPException
-from prometheus_client import Counter, generate_latest
+import time
+from fastapi import FastAPI, HTTPException, Query, Path, Request
+from prometheus_client import Counter, Histogram, generate_latest
 from starlette.responses import Response
+from starlette.middleware.base import BaseHTTPMiddleware
 
 # Configuração de logging
 logging.basicConfig(
@@ -16,32 +18,79 @@ logging.basicConfig(
 logger = logging.getLogger("my_app")
 
 # Métricas para Prometheus
-REQUEST_COUNT = Counter("app_requests_total", "Total de requisições para a aplicação", ["method", "endpoint"])
+REQUEST_COUNT = Counter("app_requests_total", "Total de requisições para a aplicação", ["method", "endpoint", "status_code"])
+REQUEST_TIME = Histogram("app_request_duration_seconds", "Tempo de execução das requisições", ["method", "endpoint"])
+ERROR_COUNT = Counter("app_errors_total", "Total de erros na aplicação", ["method", "endpoint", "status_code"])
 
 # Inicializando a aplicação
-app = FastAPI()
+app = FastAPI(
+    title="FastAPI com Prometheus e Logging",
+    description="Exemplo de aplicação FastAPI com métricas e logging aprimorados.",
+    version="1.0.0"
+)
 
+# Middleware para captura de erros
+class ErrorHandlerMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        try:
+            response = await call_next(request)
+            return response
+        except Exception as e:
+            ERROR_COUNT.labels(method=request.method, endpoint=request.url.path, status_code=500).inc()
+            logger.error(f"Erro não tratado: {e}", exc_info=True)
+            raise HTTPException(status_code=500, detail="Erro interno no servidor.")
+
+app.add_middleware(ErrorHandlerMiddleware)
+
+# Middleware para métricas e logging
 @app.middleware("http")
-async def prometheus_middleware(request, call_next):
+async def prometheus_middleware(request: Request, call_next):
     method = request.method
     endpoint = request.url.path
-    REQUEST_COUNT.labels(method=method, endpoint=endpoint).inc()
-    response = await call_next(request)
-    return response
+    start_time = time.time()
 
-@app.get("/example")
+    try:
+        response = await call_next(request)
+        duration = time.time() - start_time
+        REQUEST_TIME.labels(method=method, endpoint=endpoint).observe(duration)
+        REQUEST_COUNT.labels(method=method, endpoint=endpoint, status_code=response.status_code).inc()
+        logger.info(f"Requisição {method} {endpoint} concluída em {duration:.2f}s com status {response.status_code}.")
+        return response
+    except Exception as e:
+        ERROR_COUNT.labels(method=method, endpoint=endpoint, status_code=500).inc()
+        logger.error(f"Erro ao processar requisição {method} {endpoint}: {e}", exc_info=True)
+        raise
+
+# Endpoint de exemplo
+@app.get("/example", summary="Endpoint de exemplo", description="Retorna uma mensagem simples.")
 def example():
     logger.info("Endpoint /example acessado com sucesso.")
     return {"message": "Hello World"}
 
-@app.get("/metrics")
-def metrics():
-    return Response(content=generate_latest(), media_type="text/plain")
-
-@app.get("/error")
+# Endpoint de erro
+@app.get("/error", summary="Endpoint de erro", description="Simula um erro interno.")
 def error():
     try:
         raise ValueError("Erro intencional para testes.")
     except ValueError as e:
         logger.error(f"Erro ao processar requisição: {e}")
         raise HTTPException(status_code=500, detail="Erro interno.")
+
+# Endpoint de métricas
+@app.get("/metrics", summary="Métricas Prometheus", description="Retorna métricas da aplicação.")
+def metrics():
+    return Response(content=generate_latest(), media_type="text/plain")
+
+# Endpoint de saúde
+@app.get("/health", summary="Verificação de saúde", description="Verifica se a aplicação está funcionando.")
+def health_check():
+    return {"status": "healthy"}
+
+# Endpoint com validação de entrada
+@app.get("/greet/{name}", summary="Saudação personalizada", description="Retorna uma saudação personalizada.")
+def greet(name: str = Path(..., description="Nome para saudação"), age: int = Query(..., description="Idade da pessoa")):
+    if age < 0:
+        logger.warning(f"Idade inválida fornecida: {age}")
+        raise HTTPException(status_code=400, detail="Idade não pode ser negativa.")
+    logger.info(f"Saudação gerada para {name} com {age} anos.")
+    return {"message": f"Olá, {name}! Você tem {age} anos."}
