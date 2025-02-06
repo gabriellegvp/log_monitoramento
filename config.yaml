@@ -1,8 +1,30 @@
 logging:
-  level: INFO
-  file: app.log
+  level: INFO  # Nível de log padrão
+  file:
+    path: /var/log/myapp/app.log  # Caminho completo para o arquivo de log
+    max_size: 10MB  # Tamanho máximo do arquivo de log antes de rotacionar
+    backups: 5  # Número de arquivos de log antigos a manter
+    format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"  # Formato do log
+  console:
+    enabled: true  # Habilita logging no console
+    format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"  # Formato do log no console
+
 elk:
-  host: localhost
-  port: 9200
+  host: localhost  # Host do ELK
+  port: 9200  # Porta do ELK
+  index: myapp-logs  # Nome do índice onde os logs serão armazenados
+  bulk_size: 1000  # Tamanho do lote para envio de logs
+  timeout: 10s  # Tempo limite para conexão com o ELK
+  retry:
+    enabled: true  # Habilita tentativas de reconexão
+    max_attempts: 5  # Número máximo de tentativas
+    delay: 2s  # Intervalo entre tentativas
+
 prometheus:
-  enabled: true
+  enabled: true  # Habilita o monitoramento com Prometheus
+  port: 9090  # Porta onde o Prometheus expõe as métricas
+  endpoint: /metrics  # Endpoint onde as métricas são expostas
+  scrape_interval: 15s  # Intervalo de coleta de métricas
+  labels:
+    app: myapp  # Labels adicionais para as métricas
+    environment: production  # Ambiente onde a aplicação está rodando
