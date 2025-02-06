@@ -1,20 +1,81 @@
 version: "3.9"
 services:
   app:
-    build: .
+    build:
+      context: .
+      dockerfile: Dockerfile  # Especifica o Dockerfile a ser usado
     ports:
       - "8000:8000"
     volumes:
       - .:/app
+    environment:
+      - LOG_LEVEL=INFO  # Define o nível de log
+      - ELK_HOST=elk    # Configura o host do ELK
+    depends_on:
+      elk:
+        condition: service_healthy  # Aguarda o ELK estar saudável antes de iniciar
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]  # Verifica a saúde da aplicação
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
   prometheus:
     image: prom/prometheus
     ports:
       - "9090:9090"
     volumes:
       - ./prometheus.yml:/etc/prometheus/prometheus.yml
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.retention.time=7d"  # Define retenção de dados por 7 dias
+    depends_on:
+      app:
+        condition: service_started  # Aguarda o app iniciar antes de começar
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9090/-/healthy"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
   elk:
     image: sebp/elk
     ports:
       - "5601:5601"  # Kibana
       - "9200:9200"  # Elasticsearch
       - "5044:5044"  # Logstash
+    environment:
+      - ES_JAVA_OPTS=-Xms512m -Xmx512m  # Configura memória do Elasticsearch
+      - LOGSTASH_START=1
+      - KIBANA_START=1
+    volumes:
+      - ./elk-data:/var/lib/elasticsearch  # Persistência de dados do Elasticsearch
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9200/_cluster/health?wait_for_status=yellow&timeout=50s"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+      nofile:
+        soft: 65536
+        hard: 65536
+
+  grafana:  # Adicionando Grafana para visualização de métricas
+    image: grafana/grafana
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./grafana-data:/var/lib/grafana  # Persistência de dados do Grafana
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin  # Senha do admin do Grafana
+    depends_on:
+      prometheus:
+        condition: service_healthy  # Aguarda o Prometheus estar saudável
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
