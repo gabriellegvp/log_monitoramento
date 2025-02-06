@@ -1,3 +1,4 @@
 fastapi
-uvicorn
-prometheus_client
+uvicorn[standard]
+prometheus-client
+python-dotenv
