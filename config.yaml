@@ -5,26 +5,98 @@ logging:
     max_size: 10MB  # Tamanho máximo do arquivo de log antes de rotacionar
     backups: 5  # Número de arquivos de log antigos a manter
     format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"  # Formato do log
+    compression: gzip  # Comprime os arquivos de log antigos
+    retention: 30d  # Período de retenção dos logs (30 dias)
   console:
     enabled: true  # Habilita logging no console
     format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"  # Formato do log no console
+  syslog:
+    enabled: false  # Habilita envio de logs para syslog
+    address: /dev/log  # Endereço do syslog (pode ser um IP ou caminho de socket)
+    facility: local0  # Facilidade do syslog
+  elk:
+    enabled: true  # Habilita envio de logs para o ELK Stack
+    host: localhost  # Host do ELK
+    port: 9200  # Porta do ELK
+    index: myapp-logs  # Nome do índice onde os logs serão armazenados
+    bulk_size: 1000  # Tamanho do lote para envio de logs
+    timeout: 10s  # Tempo limite para conexão com o ELK
+    retry:
+      enabled: true  # Habilita tentativas de reconexão
+      max_attempts: 5  # Número máximo de tentativas
+      delay: 2s  # Intervalo entre tentativas
+  graylog:
+    enabled: false  # Habilita envio de logs para Graylog
+    host: localhost  # Host do Graylog
+    port: 12201  # Porta do Graylog (GELF UDP)
+    protocol: udp  # Protocolo de comunicação (udp ou tcp)
+  cloudwatch:
+    enabled: false  # Habilita envio de logs para AWS CloudWatch
+    log_group: myapp-logs  # Grupo de logs no CloudWatch
+    log_stream: myapp-instance-1  # Stream de logs no CloudWatch
+    region: us-east-1  # Região da AWS
+    access_key: ""  # Chave de acesso da AWS
+    secret_key: ""  # Chave secreta da AWS
 
-elk:
-  host: localhost  # Host do ELK
-  port: 9200  # Porta do ELK
-  index: myapp-logs  # Nome do índice onde os logs serão armazenados
-  bulk_size: 1000  # Tamanho do lote para envio de logs
-  timeout: 10s  # Tempo limite para conexão com o ELK
-  retry:
-    enabled: true  # Habilita tentativas de reconexão
-    max_attempts: 5  # Número máximo de tentativas
-    delay: 2s  # Intervalo entre tentativas
+monitoring:
+  prometheus:
+    enabled: true  # Habilita o monitoramento com Prometheus
+    port: 9090  # Porta onde o Prometheus expõe as métricas
+    endpoint: /metrics  # Endpoint onde as métricas são expostas
+    scrape_interval: 15s  # Intervalo de coleta de métricas
+    labels:
+      app: myapp  # Labels adicionais para as métricas
+      environment: production  # Ambiente onde a aplicação está rodando
+  alertmanager:
+    enabled: true  # Habilita integração com o Alertmanager
+    host: localhost  # Host do Alertmanager
+    port: 9093  # Porta do Alertmanager
+    route:
+      receiver: email  # Destinatário padrão dos alertas
+      group_wait: 30s  # Tempo de espera para agrupar alertas
+      group_interval: 5m  # Intervalo entre notificações de grupos
+      repeat_interval: 3h  # Intervalo para repetir alertas não resolvidos
+    receivers:
+      - name: email
+        email_configs:
+          - to: admin@example.com  # E-mail do administrador
+            from: alerts@myapp.com  # E-mail de origem
+            smarthost: smtp.example.com:587  # Servidor SMTP
+            auth_username: user  # Usuário do SMTP
+            auth_password: pass  # Senha do SMTP
+      - name: slack
+        slack_configs:
+          - api_url: https://hooks.slack.com/services/...  # Webhook do Slack
+            channel: "#alerts"  # Canal do Slack
+            send_resolved: true  # Envia notificações de alertas resolvidos
+  grafana:
+    enabled: true  # Habilita integração com Grafana
+    host: localhost  # Host do Grafana
+    port: 3000  # Porta do Grafana
+    dashboard:
+      name: myapp-dashboard  # Nome do dashboard no Grafana
+      refresh_interval: 10s  # Intervalo de atualização do dashboard
 
-prometheus:
-  enabled: true  # Habilita o monitoramento com Prometheus
-  port: 9090  # Porta onde o Prometheus expõe as métricas
-  endpoint: /metrics  # Endpoint onde as métricas são expostas
-  scrape_interval: 15s  # Intervalo de coleta de métricas
-  labels:
-    app: myapp  # Labels adicionais para as métricas
-    environment: production  # Ambiente onde a aplicação está rodando
+environments:
+  development:
+    logging:
+      level: DEBUG  # Nível de log mais detalhado para desenvolvimento
+      console:
+        enabled: true  # Habilita logging no console
+      file:
+        enabled: false  # Desabilita logging em arquivo
+    monitoring:
+      prometheus:
+        enabled: false  # Desabilita Prometheus em desenvolvimento
+  production:
+    logging:
+      level: INFO  # Nível de log padrão para produção
+      file:
+        enabled: true  # Habilita logging em arquivo
+      elk:
+        enabled: true  # Habilita envio de logs para o ELK
+    monitoring:
+      prometheus:
+        enabled: true  # Habilita Prometheus em produção
+      alertmanager:
+        enabled: true  # Habilita Alertmanager em produção
