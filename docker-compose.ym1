@@ -1,4 +1,5 @@
 version: "3.9"
+
 services:
   app:
     build:
@@ -9,16 +10,23 @@ services:
     volumes:
       - .:/app
     environment:
-      - LOG_LEVEL=INFO  # Define o nível de log
-      - ELK_HOST=elk    # Configura o host do ELK
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}  # Define o nível de log (com fallback para INFO)
+      - ELK_HOST=elk                  # Configura o host do ELK
+      - PROMETHEUS_HOST=prometheus    # Configura o host do Prometheus
+      - GRAFANA_HOST=grafana          # Configura o host do Grafana
+      - ENVIRONMENT=${ENVIRONMENT:-development}  # Define o ambiente (desenvolvimento ou produção)
     depends_on:
       elk:
         condition: service_healthy  # Aguarda o ELK estar saudável antes de iniciar
+      prometheus:
+        condition: service_healthy  # Aguarda o Prometheus estar saudável
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]  # Verifica a saúde da aplicação
       interval: 30s
       timeout: 10s
       retries: 3
+    networks:
+      - monitoring_network
 
   prometheus:
     image: prom/prometheus
@@ -26,6 +34,7 @@ services:
       - "9090:9090"
     volumes:
       - ./prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus-data:/prometheus  # Persistência de dados do Prometheus
     command:
       - "--config.file=/etc/prometheus/prometheus.yml"
       - "--storage.tsdb.retention.time=7d"  # Define retenção de dados por 7 dias
@@ -37,6 +46,8 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
+    networks:
+      - monitoring_network
 
   elk:
     image: sebp/elk
@@ -62,15 +73,19 @@ services:
       nofile:
         soft: 65536
         hard: 65536
+    networks:
+      - monitoring_network
 
-  grafana:  # Adicionando Grafana para visualização de métricas
+  grafana:
     image: grafana/grafana
     ports:
       - "3000:3000"
     volumes:
       - ./grafana-data:/var/lib/grafana  # Persistência de dados do Grafana
+      - ./grafana-provisioning:/etc/grafana/provisioning  # Configurações de provisionamento
     environment:
-      - GF_SECURITY_ADMIN_PASSWORD=admin  # Senha do admin do Grafana
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:-admin}  # Senha do admin do Grafana
+      - GF_SECURITY_DISABLE_INITIAL_ADMIN_PASSWORD_HINT=true  # Desabilita dica de senha inicial
     depends_on:
       prometheus:
         condition: service_healthy  # Aguarda o Prometheus estar saudável
@@ -79,3 +94,65 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
+    networks:
+      - monitoring_network
+
+  alertmanager:  # Adicionando Alertmanager para gerenciamento de alertas
+    image: prom/alertmanager
+    ports:
+      - "9093:9093"
+    volumes:
+      - ./alertmanager.yml:/etc/alertmanager/alertmanager.yml  # Configuração do Alertmanager
+    command:
+      - "--config.file=/etc/alertmanager/alertmanager.yml"
+    depends_on:
+      prometheus:
+        condition: service_healthy  # Aguarda o Prometheus estar saudável
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9093/-/healthy"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - monitoring_network
+
+  redis:  # Adicionando Redis para cache e filas
+    image: redis:6
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data  # Persistência de dados do Redis
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - monitoring_network
+
+  nginx:  # Adicionando Nginx como proxy reverso
+    image: nginx:latest
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf  # Configuração do Nginx
+    depends_on:
+      app:
+        condition: service_healthy  # Aguarda o app estar saudável
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:80/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - monitoring_network
+
+volumes:
+  prometheus-data:  # Volume para persistência de dados do Prometheus
+  elk-data:         # Volume para persistência de dados do Elasticsearch
+  grafana-data:     # Volume para persistência de dados do Grafana
+  redis-data:       # Volume para persistência de dados do Redis
+
+networks:
+  monitoring_network:  # Rede compartilhada para todos os serviços
+    driver: bridge
